@@ -16,7 +16,7 @@ const CONFIG = {
 
 let tokenCache = { token: null, expiry: 0 };
 
-// Keep alive (evita cold start do Render Free)
+// Keep alive
 setInterval(() => {
   fetch('https://bot-sellers.onrender.com/').catch(() => {});
 }, 840000);
@@ -27,20 +27,17 @@ app.post('/', async (req, res) => {
     const body = req.body || {};
     console.log('POST:', JSON.stringify(body).substring(0, 300));
 
-    // Challenge - SeaTalk envia "challenge" (NAO "seatalk_challenge")
-    if (body.challenge || body.seatalk_challenge) {
-      const challengeValue = body.challenge || body.seatalk_challenge;
-      console.log('Challenge recebido:', challengeValue);
-      return res.status(200).json({ challenge: challengeValue });
+    // CHALLENGE: retorna com o MESMO nome de campo que foi enviado
+    if (body.seatalk_challenge) {
+      console.log('seatalk_challenge:', body.seatalk_challenge);
+      return res.status(200).json({ seatalk_challenge: body.seatalk_challenge });
     }
-
-    // URL verification type
-    if (body.type === 'url_verification') {
-      console.log('URL verification:', body.challenge);
+    if (body.challenge) {
+      console.log('challenge:', body.challenge);
       return res.status(200).json({ challenge: body.challenge });
     }
 
-    // Responde 200 OK pro SeaTalk
+    // Responde 200 OK
     res.status(200).json({ code: 0 });
 
     // Processa mensagem

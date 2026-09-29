@@ -16,30 +16,34 @@ const CONFIG = {
 
 let tokenCache = { token: null, expiry: 0 };
 
-// =================== KEEP ALIVE (evita cold start) ==========
+// Keep alive (evita cold start do Render Free)
 setInterval(() => {
-  fetch('https://bot-sellers.onrender.com/')
-    .then(() => console.log('Keep alive ping'))
-    .catch(() => {});
-}, 840000); // 14 minutos
+  fetch('https://bot-sellers.onrender.com/').catch(() => {});
+}, 840000);
 
-// =================== CHALLENGE (POST e GET) ==================
+// =================== CALLBACK DO SEATALK ====================
 app.post('/', async (req, res) => {
   try {
     const body = req.body || {};
-    console.log('POST recebido:', JSON.stringify(body).substring(0, 200));
+    console.log('POST:', JSON.stringify(body).substring(0, 300));
 
-    // Challenge de verificação
-    if (body.seatalk_challenge) {
-      console.log('Challenge:', body.seatalk_challenge);
-      res.set('Content-Type', 'application/json');
-      return res.status(200).send(JSON.stringify({ seatalk_challenge: body.seatalk_challenge }));
+    // Challenge - SeaTalk envia "challenge" (NAO "seatalk_challenge")
+    if (body.challenge || body.seatalk_challenge) {
+      const challengeValue = body.challenge || body.seatalk_challenge;
+      console.log('Challenge recebido:', challengeValue);
+      return res.status(200).json({ challenge: challengeValue });
     }
 
-    // Responde 200 OK imediatamente
+    // URL verification type
+    if (body.type === 'url_verification') {
+      console.log('URL verification:', body.challenge);
+      return res.status(200).json({ challenge: body.challenge });
+    }
+
+    // Responde 200 OK pro SeaTalk
     res.status(200).json({ code: 0 });
 
-    // Processa a mensagem em background
+    // Processa mensagem
     const eventType = body.event_type || '';
     if (eventType === 'message_from_bot_subscriber') {
       const message = body.message || {};
@@ -55,10 +59,9 @@ app.post('/', async (req, res) => {
         const shopId = numeros[0];
         console.log('Buscando Shop ID:', shopId);
         const resultado = await buscarNaPlanilha(shopId);
-        const resposta = formatarResposta(resultado);
-        await sendMessage(employeeCode, resposta);
+        await sendMessage(employeeCode, formatarResposta(resultado));
       } else {
-        console.log('Encaminhando pro Knowledge:', texto);
+        console.log('Encaminhando pro Knowledge');
         await encaminharParaKnowledge(body);
       }
     } else {
@@ -71,45 +74,40 @@ app.post('/', async (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.json({ status: 'online', bot: 'Bot Sellers SeaTalk', time: new Date().toISOString() });
+  res.json({ status: 'online', bot: 'Bot Sellers SeaTalk' });
 });
 
 // =================== SEATALK API ============================
 async function getAccessToken() {
   if (tokenCache.token && Date.now() < tokenCache.expiry) return tokenCache.token;
-  const res = await fetch(CONFIG.SEATALK_API + '/auth/app_access_token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  const r = await fetch(CONFIG.SEATALK_API + '/auth/app_access_token', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ app_id: CONFIG.SOP_APP_ID, app_secret: CONFIG.SOP_APP_SECRET })
   });
-  const data = await res.json();
-  const token = data.app_access_token || data.access_token;
-  if (token) tokenCache = { token, expiry: Date.now() + 3600000 };
-  return token;
+  const d = await r.json();
+  const t = d.app_access_token || d.access_token;
+  if (t) tokenCache = { token: t, expiry: Date.now() + 3600000 };
+  return t;
 }
 
 async function sendMessage(employeeCode, text) {
   const token = await getAccessToken();
-  if (!token) { console.log('Sem token'); return; }
-  const res = await fetch(CONFIG.SEATALK_API + '/messaging/v2/single_chat', {
+  if (!token) return;
+  const r = await fetch(CONFIG.SEATALK_API + '/messaging/v2/single_chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
     body: JSON.stringify({ employee_code: employeeCode, message: { tag: 'text', text } })
   });
-  const r = await res.json();
-  console.log('Enviado:', r.code === 0 ? 'OK' : JSON.stringify(r));
+  const d = await r.json();
+  console.log('Enviado:', d.code === 0 ? 'OK' : JSON.stringify(d));
 }
 
 // =================== BUSCA NA PLANILHA ======================
 async function buscarNaPlanilha(shopId) {
   try {
-    const url = CONFIG.WEBAPP_URL + '?shopId=' + encodeURIComponent(shopId);
-    const res = await fetch(url, { redirect: 'follow' });
-    return await res.json();
-  } catch (err) {
-    console.log('Erro planilha:', err.message);
-    return { found: false };
-  }
+    const r = await fetch(CONFIG.WEBAPP_URL + '?shopId=' + encodeURIComponent(shopId), { redirect: 'follow' });
+    return await r.json();
+  } catch (e) { return { found: false }; }
 }
 
 function formatarResposta(r) {
@@ -127,18 +125,14 @@ function formatarResposta(r) {
   ].join('\n');
 }
 
-// =================== ALPHA KNOWLEDGE ========================
 async function encaminharParaKnowledge(body) {
   try {
-    const res = await fetch(CONFIG.KNOWLEDGE_CALLBACK, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const r = await fetch(CONFIG.KNOWLEDGE_CALLBACK, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
-    console.log('Knowledge:', res.status);
-  } catch (err) {
-    console.log('Erro Knowledge:', err.message);
-  }
+    console.log('Knowledge:', r.status);
+  } catch (e) { console.log('Erro Knowledge:', e.message); }
 }
 
 const PORT = process.env.PORT || 3000;
